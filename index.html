@@ -1,23 +1,28 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width">
   <title>JS Bin</title>
 </head>
+
 <body>
   <button id="btn">press</button>
   <div id="pressed">false</div>
   <script>
-    btn.addEventListener('mousedown',()=>{       
-        pressed.textContent = 'true';
-        window.parent.postMessage('clicked');        
-          var num =0;
-          for(let i=0;i<50000000;i++) {
-           num+=Date.now();
-          }
-          console.log(num);
+    btn.addEventListener('mousedown', () => {
+      pressed.textContent = 'true';
+      window.parent.postMessage('clicked');
+      setTimeout(() => {
+        var num = 0;
+        for (let i = 0; i < 50000000; i++) {
+          num += Date.now();
+        }
+        console.log(num);
+      }, 1);
     });
   </script>
 </body>
+
 </html>
