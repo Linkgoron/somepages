@@ -10,6 +10,9 @@
 <body>
   <button id="btn">press</button>
   <button id="btn2">loc</button>
+  <button id="btn3">msg - down</button>
+  <button id="btn4">msg - click</button>
+  <button id="btn5">msg - up</button>
   <div id="pressed">false</div>
   <script>
     btn.addEventListener('mousedown', () => {
@@ -32,6 +35,18 @@
     }, 1);
     btn2.addEventListener('mousedown', () => {
       window.location.href="http://jsbin.testim.io/dan";
+    });
+    btn3.addEventListener('mousedown', () => {
+      pressed.textContent = 'true';
+      window.parent.postMessage('clicked');
+    });
+    btn4.addEventListener('click', () => {
+      pressed.textContent = 'true';
+      window.parent.postMessage('clicked');
+    });
+    btn5.addEventListener('mouseup', () => {
+      pressed.textContent = 'true';
+      window.parent.postMessage('clicked');
     });
   </script>
 </body>
