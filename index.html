@@ -9,6 +9,7 @@
 
 <body>
   <button id="btn">press</button>
+  <button id="btn2">loc</button>
   <div id="pressed">false</div>
   <script>
     btn.addEventListener('mousedown', () => {
@@ -29,6 +30,9 @@
       }
       console.log(num);
     }, 1);
+    btn2.addEventListener('mousedown', () => {
+      window.location.href="http://jsbin.testim.io/dan";
+    });
   </script>
 </body>
 
