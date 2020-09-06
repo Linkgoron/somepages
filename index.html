@@ -17,7 +17,7 @@
   <script>
     btn.addEventListener('mousedown', () => {
       pressed.textContent = 'true';
-      window.parent.postMessage('clicked');
+      window.parent.postMessage('clicked', '*');
     });
     btn.addEventListener('mouseup', () => {
         var num = 0;
@@ -38,15 +38,15 @@
     });
     btn3.addEventListener('mousedown', () => {
       pressed.textContent = 'true';
-      window.parent.postMessage('clicked');
+      window.parent.postMessage('clicked', '*');
     });
     btn4.addEventListener('click', () => {
       pressed.textContent = 'true';
-      window.parent.postMessage('clicked');
+      window.parent.postMessage('clicked', '*');
     });
     btn5.addEventListener('mouseup', () => {
       pressed.textContent = 'true';
-      window.parent.postMessage('clicked');
+      window.parent.postMessage('clicked', '*');
     });
   </script>
 </body>
