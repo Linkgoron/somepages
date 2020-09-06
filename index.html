@@ -14,14 +14,21 @@
     btn.addEventListener('mousedown', () => {
       pressed.textContent = 'true';
       window.parent.postMessage('clicked');
-      setTimeout(() => {
+    });
+    btn.addEventListener('mouseup', () => {
         var num = 0;
-        for (let i = 0; i < 50000000; i++) {
+        for (let i = 0; i < 500000000; i++) {
           num += Date.now();
         }
         console.log(num);
       }, 1);
-    });
+    btn.addEventListener('click', () => {
+      var num = 0;
+      for (let i = 0; i < 5000; i++) {
+        num += Date.now();
+      }
+      console.log(num);
+    }, 1);
   </script>
 </body>
 
