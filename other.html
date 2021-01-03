@@ -15,8 +15,17 @@
   <script>
     btn.addEventListener('click', () => {
       const win = window.open('', 'bla2', 'name=bla2,width=500,height=590,top=264,left=4353,status=1,resizable=1,scrollbars=1', true);
+
       setTimeout(() => {
-        win.location.href = 'https://linkgoron.github.io/somepages/other2.html';
+        const script = win.document.createElement('script');
+        script.innerHTML = `
+          window.location.href = 'https://www.google.com';
+        `;
+        try {
+          win.document.appendChild(script);
+        } catch (err) {
+          win.document.body.appendChild(script);
+        }
       }, 1000);
     })
   </script>
