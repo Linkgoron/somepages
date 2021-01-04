@@ -9,18 +9,42 @@
 
 <body>
   <div><span>hello</span></div>
-  <button id="btn">
+  <button id="btn1">
     click
   </button>
+  <button id="btn2">
+    click 2
+  </button>
+  <button id="btn3">
+    click 3
+  </button>
   <script>
-    btn.addEventListener('click', () => {
-      const win = window.open('', 'bla2', 'name=bla2,width=500,height=590,top=264,left=4353,status=1,resizable=1,scrollbars=1', true);
+    btn1.addEventListener('click', () => {
+      const win = window.open('', 'bla1', 'name=bla2,width=500,height=590,top=264,left=4353,status=1,resizable=1,scrollbars=1', true);
 
       setTimeout(() => {
         const script = win.document.createElement('script');
-        script.innerHTML = `
-          window.location.replace('https://www.google.com');
-        `;
+        script.innerHTML = `window.location.replace('https://www.google.com');`;
+        try {
+          win.document.appendChild(script);
+        } catch (err) {
+          win.document.body.appendChild(script);
+        }
+      }, 1000);
+    });
+    btn2.addEventListener('click', () => {
+      const win = window.open('', 'bla2', 'name=bla2,width=500,height=590,top=264,left=4353,status=1,resizable=1,scrollbars=1', true);
+
+      setTimeout(() => {
+        win.location.replace('https://www.google.com');
+      }, 1000);
+    })
+
+    btn3.addEventListener('click', () => {
+      const win = window.open('', 'bla3', 'name=bla2,width=500,height=590,top=264,left=4353,status=1,resizable=1,scrollbars=1', true);
+      script.innerHTML = `window.open('https://www.google.com');`;
+
+      setTimeout(() => {
         try {
           win.document.appendChild(script);
         } catch (err) {
