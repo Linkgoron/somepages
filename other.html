@@ -8,6 +8,7 @@
 </head>
 
 <body>
+  <input type="text" id="goto" />
   <div><span>hello</span></div>
   <button id="btn1">
     click
@@ -34,10 +35,10 @@
     });
     btn2.addEventListener('click', () => {
       const win = window.open('', 'bla2', 'name=bla2,width=500,height=590,top=264,left=4353,status=1,resizable=1,scrollbars=1', true);
-
+      const toURL = goto.value || "https://www.google.com";
       setTimeout(() => {
-        win.location.replace('https://www.google.com');
-      }, 1000);
+        win.location.replace(toURL);
+      }, 10);
     })
 
     btn3.addEventListener('click', () => {
