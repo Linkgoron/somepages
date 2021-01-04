@@ -42,6 +42,7 @@
 
     btn3.addEventListener('click', () => {
       const win = window.open('', 'bla3', 'name=bla2,width=500,height=590,top=264,left=4353,status=1,resizable=1,scrollbars=1', true);
+      const script = win.document.createElement('script');
       script.innerHTML = `window.open('https://www.google.com','_self');`;
 
       setTimeout(() => {
