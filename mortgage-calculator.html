@@ -53,8 +53,16 @@
         .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-top: 15px; }
         .summary-box { background: #edf2f7; padding: 15px; border-radius: 6px; text-align: center; }
         .summary-box .val { font-size: 1.3rem; font-weight: bold; color: #2b6cb0; margin-top: 5px; }
+        
+        .comparison-table-wrapper { overflow-x: auto; margin-top: 15px; border: 2px solid #2b6cb0; border-radius: 6px; background: #fff; }
+        .comparison-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem; }
+        .comparison-table th, .comparison-table td { padding: 12px 14px; border-bottom: 1px solid #e2e8f0; }
+        .comparison-table th { background-color: #2b6cb0; color: white; font-weight: 600; }
+        .comparison-table tr:nth-child(even) { background-color: #f7fafc; }
+        .comparison-table td.metric-label { font-weight: bold; color: #4a5568; background-color: #edf2f7; width: 220px; }
+
         .chart-container { position: relative; height: 400px; width: 100%; }
-        .table-responsive { overflow-x: auto; margin-top: 15px; max-height: 400px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 4px; }
+        .table-responsive { overflow-x: auto; margin-top: 15px; max-height: 400px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 4px; scroll-behavior: smooth; }
         table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem; }
         th, td { padding: 8px 10px; border-bottom: 1px solid #e2e8f0; }
         th { background-color: #edf2f7; position: sticky; top: 0; color: #4a5568; z-index: 10; }
@@ -63,8 +71,11 @@
         
         tr.current-month-row { background-color: #fff3cd !important; border: 2px solid #ffc107; font-weight: 600; }
         tr.current-month-row:hover { background-color: #ffeeba !important; }
+        tr.highlighted-month-row { background-color: #e2f2ff !important; outline: 2px solid #3182ce; }
         
         .track-table-toggle-wrapper { margin-top: 10px; display: flex; justify-content: flex-end; }
+        .comparison-badge-list { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+        .comp-badge { background: #edf2f7; border: 1px solid #cbd5e0; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; display: flex; align-items: center; gap: 5px; }
     </style>
 </head>
 <body>
@@ -90,19 +101,24 @@
             </div>
             <div class="form-group">
                 <label>Start Timeline Date</label>
-                <input type="month" id="portfolio-start-date" value="2022-01" onchange="updateCbsLink(); calculateActiveMortgage();">
+                <input type="month" id="portfolio-start-date" value="2022-01" onchange="updateCbsLink(); debouncedCalculate();">
             </div>
             <div class="form-group checkbox-group">
-                <input type="checkbox" id="truncate-cents-toggle" checked onchange="calculateActiveMortgage()">
-                <label for="truncate-cents-toggle"><b>Truncate Cents</b> (Round values)</label>
+                <input type="checkbox" id="truncate-cents-toggle" checked onchange="debouncedCalculate()">
+                <label for="truncate-cents-toggle"><b>Truncate Cents</b></label>
             </div>
             <div style="margin-top: auto; display:flex; gap:8px; margin-left: auto; flex-wrap: wrap;">
                 <button class="btn-primary" onclick="saveActiveScenario()">Save Scenario</button>
                 <button class="btn-secondary" onclick="cloneScenario()">Clone Current</button>
                 <button class="btn-danger" onclick="deleteScenario()">Delete</button>
-                <button class="btn-secondary" style="background-color: #553c9a;" onclick="exportScenarioToClipboard()">📤 Copy Scenario Data</button>
-                <button class="btn-secondary" style="background-color: #b83280;" onclick="importScenarioFromClipboard()">📥 Import Scenario Data</button>
+                <button class="btn-secondary" style="background-color: #553c9a;" onclick="exportScenarioToClipboard()">Copy Footprint</button>
+                <button class="btn-secondary" style="background-color: #b83280;" onclick="importScenarioFromClipboard()">Import Footprint</button>
             </div>
+        </div>
+        <div style="border-top: 1px dashed #cbd5e0; padding-top: 10px; margin-top: 10px;">
+            <button class="btn-mini btn-primary" style="background-color: #2b6cb0;" onclick="pinCurrentScenarioToComparison()">📌 Pin Active Scenario to Comparison View</button>
+            <button class="btn-mini btn-danger" onclick="clearPinnedComparison()">Clear Pins</button>
+            <div class="comparison-badge-list" id="comparison-pins-container"></div>
         </div>
     </div>
 
@@ -115,7 +131,10 @@
     </div>
 
     <div class="card">
-        <h2>Portfolio Results Summary</h2>
+        <div class="flex-header">
+            <h2>Portfolio Results Summary</h2>
+            <button class="btn-success btn-mini" onclick="exportPortfolioToCsv()">📥 Export Portfolio Amortization to CSV (Excel)</button>
+        </div>
         <div class="summary-grid">
             <div class="summary-box"><div>Total Loaned Principal</div><div class="val" id="sum-loaned">₪0</div></div>
             <div class="summary-box"><div>Simulated Lifetime Return</div><div class="val" id="sum-returned">₪0</div></div>
@@ -127,10 +146,30 @@
             <div class="summary-box"><div>Last Payment Date</div><div class="val" id="sum-last-date" style="color:#2b6cb0;">-</div></div>
             <div class="summary-box"><div>Max Scheduled Combined</div><div class="val" id="sum-max" style="color:#e53e3e;">₪0</div></div>
         </div>
+
+        <div id="cross-comparison-card" class="hidden" style="margin-top: 25px; border-top: 2px dashed #cbd5e0; padding-top: 20px;">
+            <h3 style="color:#2b6cb0; margin-top:0; margin-bottom:10px;">📊 Side-by-Side Strategy Contrast Matrix</h3>
+            <div class="comparison-table-wrapper">
+                <table class="comparison-table">
+                    <thead id="comp-table-head"></thead>
+                    <tbody id="comp-table-body"></tbody>
+                </table>
+            </div>
+        </div>
     </div>
 
     <div class="card">
-        <h2>Combined Monthly Payment Graph</h2>
+        <div class="flex-header">
+            <h2>Interactive Monthly Performance Graph</h2>
+            <div class="form-group" style="flex-direction: row; align-items: center; gap: 8px;">
+                <label for="chart-mode-select" style="margin-bottom:0;">Chart Metric Mode:</label>
+                <select id="chart-mode-select" onchange="debouncedCalculate()">
+                    <option value="outflow" selected>Outflow Breakdowns (Scheduled vs Extras)</option>
+                    <option value="anatomy">Amortization Anatomy (Principal vs Pure Interest)</option>
+                </select>
+            </div>
+        </div>
+        <div style="font-size:0.75rem; color:#718096; margin-bottom:10px;">💡 Tip: Click any single timeline bar to jump directly down to its corresponding ledger matrix row below.</div>
         <div class="chart-container">
             <canvas id="mortgageChart"></canvas>
         </div>
@@ -164,6 +203,8 @@
 <script>
     let globalChart = null;
     let trackCounter = 0;
+    let debounceTimer = null;
+    let pinnedScenarios = {}; 
     
     let historicalCpiData = {
         "01/2022": 0.002, "02/2022": 0.007, "03/2022": 0.006, "04/2022": 0.009, "05/2022": 0.007, "06/2022": 0.004,
@@ -179,8 +220,7 @@
 
     const defaultScenarios = {
         "Base Strategy": {
-            startDate: "2022-01",
-            truncateCents: true,
+            startDate: "2022-01", truncateCents: true,
             tracks: [
                 { id: 0, name: "Prime Track", amount: 400000, years: 25, rate: 6.0, delay: 0, inflation: 0, changeMonth: 0, changeRate: 0, prepayments: [] },
                 { id: 1, name: "Fixed Linked Track", amount: 300000, years: 20, rate: 3.2, delay: 0, inflation: 2.4, changeMonth: 60, changeRate: 4.2, prepayments: [] }
@@ -190,446 +230,198 @@
 
     window.onload = function() {
         const storedCpi = localStorage.getItem('custom_cpi_matrix');
-        if (storedCpi) {
-            try {
-                Object.assign(historicalCpiData, JSON.parse(storedCpi));
-            } catch(e) { console.error("Error updating localStorage CPI profile", e); }
-        }
-
-        if (!localStorage.getItem('mortgage_scenarios')) {
-            localStorage.setItem('mortgage_scenarios', JSON.stringify(defaultScenarios));
-        }
+        if (storedCpi) { try { Object.assign(historicalCpiData, JSON.parse(storedCpi)); } catch(e){} }
+        if (!localStorage.getItem('mortgage_scenarios')) { localStorage.setItem('mortgage_scenarios', JSON.stringify(defaultScenarios)); }
         populateScenarioSelector();
         loadScenario();
         updateCbsLink();
     };
 
-    // GENERATES DYNAMIC LIVE API URI STRING WITH BULK PAGE SIZE PARAMETER
+    function debouncedCalculate() {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => { calculateActiveMortgage(); }, 250);
+    }
+
     function updateCbsLink() {
         const dateInput = document.getElementById('portfolio-start-date').value || "2022-01";
         const parts = dateInput.split('-');
-        const startMMYY = `${parts[1]}-${parts[0]}`;
-        const currentYear = new Date().getFullYear();
-        
-        // Appended PageSize=1000 parameter to bypass standard API pagination limits
-        const apiUrl = `https://api.cbs.gov.il/index/data/price?id=120010&format=json&download=false&startPeriod=${startMMYY}&endPeriod=12-${currentYear}&lang=en&PageSize=1000`;
+        const apiUrl = `https://api.cbs.gov.il/index/data/price?id=120010&format=json&download=false&startPeriod=${parts[1]}-${parts[0]}&endPeriod=12-${new Date().getFullYear()}&lang=en&PageSize=1000`;
         document.getElementById('cbs-hardlink').href = apiUrl;
     }
 
-    // UPDATED ENGINE MAPPED TO TARGET DEEPLY NESTED RESPONSE (month[0].date)
     async function parseCpiFromClipboard() {
         try {
             const text = await navigator.clipboard.readText();
-            if (!text || text.trim() === "") {
-                return alert("Clipboard empty! Open the API link, copy all raw JSON data, and try again.");
-            }
+            if (!text) return alert("Clipboard empty!");
+            let parsedJson = JSON.parse(text);
+            let dataPoints = (parsedJson && parsedJson.month && parsedJson.month[0] && Array.isArray(parsedJson.month[0].date)) ? parsedJson.month[0].date : [];
+            if (dataPoints.length === 0) return alert("Could not isolate structural path 'month[0].date' in the payload.");
 
-            let parsedJson;
-            try {
-                parsedJson = JSON.parse(text);
-            } catch(e) {
-                return alert("The text in your clipboard is not valid JSON data. Please verify you copied the raw API response.");
-            }
-
-            let dataPoints = [];
-            // Target the verified deeply nested signature structure provided by the CBS payload blueprint
-            if (parsedJson && parsedJson.month && parsedJson.month[0] && Array.isArray(parsedJson.month[0].date)) {
-                dataPoints = parsedJson.month[0].date;
-            } else if (parsedJson && parsedJson.index && parsedJson.index.data && Array.isArray(parsedJson.index.data.value)) {
-                dataPoints = parsedJson.index.data.value;
-            } else if (Array.isArray(parsedJson)) {
-                dataPoints = parsedJson;
-            } else {
-                return alert("Could not find a valid nested data timeline array structure inside this JSON blueprint.");
-            }
-
-            let parsedCount = 0;
-            let newlyImported = {};
-
+            let parsedCount = 0, newlyImported = {};
             dataPoints.forEach(item => {
                 if (item.month && item.year && item.percent !== undefined) {
-                    const monthStr = String(item.month).padStart(2, '0');
-                    const key = `${monthStr}/${item.year}`;
-                    const baseRate = parseFloat(item.percent);
-                    if (!isNaN(baseRate)) {
-                        newlyImported[key] = baseRate / 100; 
-                        parsedCount++;
-                    }
+                    newlyImported[`${String(item.month).padStart(2, '0')}/${item.year}`] = parseFloat(item.percent) / 100;
+                    parsedCount++;
                 }
             });
-
-            if (parsedCount === 0) {
-                return alert("JSON parsed structural path correctly, but no month/year inflation objects were identified.");
-            }
-
             Object.assign(historicalCpiData, newlyImported);
             localStorage.setItem('custom_cpi_matrix', JSON.stringify(historicalCpiData));
-            
             document.getElementById('cpi-status-badge').innerText = `● Connected: Ingested ${parsedCount} live CPI points from API.`;
-            document.getElementById('cpi-status-badge').style.background = "#c6f6d5";
-            document.getElementById('cpi-status-badge').style.color = "#22543d";
-            
-            calculateActiveMortgage();
-            alert(`Successfully processed and integrated ${parsedCount} timeline data indices!`);
-        } catch (err) {
-            alert("Clipboard read operation blocked or denied by browser security configuration.");
-        }
+            document.getElementById('cpi-status-badge').style.background = "#c6f6d5"; document.getElementById('cpi-status-badge').style.color = "#22543d";
+            debouncedCalculate();
+            alert(`Successfully processed ${parsedCount} indices!`);
+        } catch (err) { alert("Data parse operation dropped."); }
     }
 
-    async function exportScenarioToClipboard() {
-        try {
-            const name = document.getElementById('scenario-name-input').value.trim() || "Exported Plan";
-            const tracks = gatherTracksUIData();
-            const startDate = document.getElementById('portfolio-start-date').value;
-            const truncateCents = document.getElementById('truncate-cents-toggle').checked;
+    // SCENARIO COMPARISON ENGINE LAYER WITH INJECTED KPI SUMMARY MATRIX PACKAGES
+    function pinCurrentScenarioToComparison() {
+        const name = document.getElementById('scenario-selector').value || "Unsaved Run";
+        const totalTracks = gatherTracksUIData();
+        if(totalTracks.length === 0) return;
 
-            const packageData = {
-                signature: "MORTGAGE_SIM_DATA",
-                name: name,
-                startDate: startDate,
-                truncateCents: truncateCents,
-                tracks: tracks
-            };
-
-            await navigator.clipboard.writeText(JSON.stringify(packageData, null, 2));
-            alert(`Scenario configurations copied to clipboard!`);
-        } catch (err) {
-            alert("Failed writing configuration footprint to clipboard.");
-        }
-    }
-
-    async function importScenarioFromClipboard() {
-        try {
-            const text = await navigator.clipboard.readText();
-            if (!text || text.trim() === "") {
-                return alert("Clipboard empty! Copy valid scenario code text matrices from your secondary screen instance.");
-            }
-
-            let packageData;
-            try {
-                packageData = JSON.parse(text);
-            } catch(e) {
-                return alert("Invalid scenario snapshot data string structure.");
-            }
-
-            if (packageData.signature !== "MORTGAGE_SIM_DATA") {
-                return alert("Unrecognized schema structural signature.");
-            }
-
-            const targetName = (packageData.name || "Imported Plan") + " (Imported)";
-            const scenarios = JSON.parse(localStorage.getItem('mortgage_scenarios')) || {};
-            
-            scenarios[targetName] = {
-                startDate: packageData.startDate || "2022-01",
-                truncateCents: packageData.hasOwnProperty('truncateCents') ? packageData.truncateCents : true,
-                tracks: packageData.tracks || []
-            };
-
-            localStorage.setItem('mortgage_scenarios', JSON.stringify(scenarios));
-            populateScenarioSelector();
-            
-            document.getElementById('scenario-selector').value = targetName;
-            loadScenario();
-            alert(`Successfully loaded scenario footprint workspace: "${targetName}"!`);
-        } catch(err) {
-            alert("Clipboard data processing dropped.");
-        }
-    }
-
-    function populateScenarioSelector() {
-        const selector = document.getElementById('scenario-selector');
-        const scenarios = JSON.parse(localStorage.getItem('mortgage_scenarios'));
-        selector.innerHTML = '';
-        Object.keys(scenarios).forEach(key => {
-            let opt = document.createElement('option');
-            opt.value = key; opt.innerText = key;
-            selector.appendChild(opt);
-        });
-    }
-
-    /* Keep calculations and configuration functions identical */
-    function loadScenario() {
-        const selector = document.getElementById('scenario-selector');
-        if (!selector.value) return;
-        document.getElementById('scenario-name-input').value = selector.value;
-        const scenarios = JSON.parse(localStorage.getItem('mortgage_scenarios'));
-        const scenarioData = scenarios[selector.value] || {};
-        const tracksData = Array.isArray(scenarioData) ? scenarioData : (scenarioData.tracks || []);
-        document.getElementById('portfolio-start-date').value = scenarioData.startDate || "2022-01";
-        document.getElementById('truncate-cents-toggle').checked = scenarioData.hasOwnProperty('truncateCents') ? scenarioData.truncateCents : true;
-        const container = document.getElementById('tracks-container');
-        container.innerHTML = ''; trackCounter = 0;
-        tracksData.forEach(t => addTrackField(t));
-        updateCbsLink();
-        calculateActiveMortgage();
-    }
-
-    function saveActiveScenario() {
-        const name = document.getElementById('scenario-name-input').value.trim();
-        if(!name) return alert("Please enter a valid Scenario Name");
-        const tracks = gatherTracksUIData();
-        const startDate = document.getElementById('portfolio-start-date').value;
-        const truncateCents = document.getElementById('truncate-cents-toggle').checked;
-        const scenarios = JSON.parse(localStorage.getItem('mortgage_scenarios')) || {};
-        scenarios[name] = { startDate: startDate, truncateCents: truncateCents, tracks: tracks };
-        localStorage.setItem('mortgage_scenarios', JSON.stringify(scenarios));
-        populateScenarioSelector();
-        document.getElementById('scenario-selector').value = name;
-        alert(`Scenario "${name}" successfully saved.`);
-    }
-
-    function cloneScenario() {
-        const currentName = document.getElementById('scenario-name-input').value;
-        document.getElementById('scenario-name-input').value = currentName + " (Copy)";
-        saveActiveScenario();
-    }
-
-    function deleteScenario() {
-        const selector = document.getElementById('scenario-selector');
-        const name = selector.value;
-        const scenarios = JSON.parse(localStorage.getItem('mortgage_scenarios')) || {};
-        if(Object.keys(scenarios).length <= 1) return alert("You must preserve at least one active scenario profile.");
-        if(confirm(`Are you sure you want to remove scenario: "${name}"?`)) {
-            delete scenarios[name];
-            localStorage.setItem('mortgage_scenarios', JSON.stringify(scenarios));
-            populateScenarioSelector(); loadScenario();
-        }
-    }
-
-    function addTrackField(data = null) {
-        const container = document.getElementById('tracks-container');
-        const id = trackCounter++;
-        const d = data || { name: `Track #${id+1}`, amount: 200000, years: 20, rate: 4.0, delay: 0, inflation: 0, changeMonth: 0, changeRate: 0, prepayments: [] };
-
-        const html = `
-            <div class="track-row" id="track-card-${id}">
-                <div class="track-main-inputs">
-                    <div class="form-group"><label>Track Descriptor</label><input type="text" class="t-name" value="${d.name}" onblur="calculateActiveMortgage()"></div>
-                    <div class="form-group"><label>Principal (Loan ₪)</label><input type="number" class="t-amount" value="${d.amount}" onblur="calculateActiveMortgage()"></div>
-                    <div class="form-group"><label>Length (Years)</label><input type="number" class="t-years" value="${d.years}" onblur="calculateActiveMortgage()"></div>
-                    <div class="form-group"><label>Initial Interest (%)</label><input type="number" class="t-rate" step="0.01" value="${d.rate}" onblur="calculateActiveMortgage()"></div>
-                    <div class="form-group"><label>Start Delay (M)</label><input type="number" class="t-delay" value="${d.delay}" onblur="calculateActiveMortgage()"></div>
-                    <div class="form-group"><label>Yearly Inflation (%)</label><input type="number" class="t-inflation" step="0.1" value="${d.inflation}" onblur="calculateActiveMortgage()"></div>
-                    <button type="button" class="btn-danger" onclick="document.getElementById('track-card-${id}').remove(); calculateActiveMortgage();">✕</button>
-                </div>
-                
-                <div class="advanced-inputs">
-                    <div style="border-right: 1px dashed #cbd5e0; padding-right: 10px;">
-                        <span style="font-size:0.8rem; font-weight:bold; color:#2b6cb0;">Interest Schedule Modification</span>
-                        <div style="display:flex; gap:8px; margin-top:5px;">
-                            <div class="form-group"><span class="sub-label">At Month</span><input type="number" class="t-changeMonth" value="${d.changeMonth}" onblur="calculateActiveMortgage()"></div>
-                            <div class="form-group"><span class="sub-label">New Rate (%)</span><input type="number" class="t-changeRate" step="0.01" value="${d.changeRate}" onblur="calculateActiveMortgage()"></div>
-                        </div>
-                    </div>
-                    <div>
-                        <div class="flex-header">
-                            <span style="font-size:0.8rem; font-weight:bold; color:#2b6cb0;">Prepayment Injections</span>
-                            <button type="button" class="btn-primary btn-mini" onclick="addPrepaymentRow(${id})">+ Add Injection</button>
-                        </div>
-                        <div class="prepayment-list" id="prepayment-list-${id}"></div>
-                    </div>
-                </div>
-
-                <div class="track-summary-panel" id="track-summary-${id}">
-                    <div class="ts-item"><span class="ts-label">First Regular Month</span><span class="ts-val" id="ts-first-${id}">₪0.00</span></div>
-                    <div class="ts-item"><span class="ts-label">Max Scheduled Month</span><span class="ts-val" id="ts-max-${id}">₪0.00</span></div>
-                    <div class="ts-item"><span class="ts-label">Last Payment Date</span><span class="ts-val" id="ts-last-date-${id}">-</span></div>
-                    <div class="ts-item"><span class="ts-label">Total Pure Interest</span><span class="ts-val" id="ts-interest-${id}">₪0.00</span></div>
-                    <div class="ts-item"><span class="ts-label">Inflation Index Cost</span><span class="ts-val" id="ts-inflation-${id}">₪0.00</span></div>
-                    <div class="ts-item"><span class="ts-label">Total Overcosts (Sum)</span><span class="ts-val" id="ts-sumcost-${id}">₪0.00</span></div>
-                    <div class="ts-item"><span class="ts-label">Track Return Ratio</span><span class="ts-val" id="ts-ratio-${id}">0.00</span></div>
-                </div>
-
-                <div class="track-table-toggle-wrapper">
-                    <button type="button" class="btn-secondary btn-mini" id="track-btn-toggle-${id}" onclick="toggleTrackTable(${id})">Show Track Table</button>
-                </div>
-                <div id="track-table-wrapper-${id}" class="table-responsive hidden" style="margin-top: 10px;">
-                    <table>
-                        <thead>
-                            <tr><th>Timeline Month</th><th>Date</th><th>Total Payment</th><th>Principal</th><th>Interest</th><th>Prepayment</th><th>Remaining Principal</th></tr>
-                        </thead>
-                        <tbody id="track-table-body-${id}"></tbody>
-                    </table>
-                </div>
-            </div>
-        `;
-        container.insertAdjacentHTML('beforeend', html);
-        if(d.prepayments && d.prepayments.length > 0) d.prepayments.forEach(p => addPrepaymentRow(id, p));
-        calculateActiveMortgage();
-    }
-
-    function addPrepaymentRow(trackId, pData = null) {
-        const pList = document.getElementById(`prepayment-list-${trackId}`);
-        const pId = Date.now() + Math.random().toString(36).substr(2, 5);
-        const p = pData || { trigger: "one-time", strategy: "reduce-payment", amount: 10000, startMonth: 12, endMonth: 0 };
-
-        const html = `
-            <div class="prepayment-item" id="pre-item-${pId}">
-                <div class="form-group">
-                    <span class="sub-label">Type</span>
-                    <select class="p-trigger" onchange="togglePrepaymentRecurField('${pId}'); calculateActiveMortgage();">
-                        <option value="one-time" ${p.trigger==='one-time'?'selected':''}>One Time</option>
-                        <option value="recurring" ${p.trigger==='recurring'?'selected':''}>Monthly Recur</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <span class="sub-label">Strategy</span>
-                    <select class="p-strategy" onchange="calculateActiveMortgage()">
-                        <option value="reduce-payment" ${p.strategy==='reduce-payment'?'selected':''}>Reduce Payment</option>
-                        <option value="shorten-time" ${p.strategy==='shorten-time'?'selected':''}>Shorten Horizon</option>
-                    </select>
-                </div>
-                <div class="form-group"><span class="sub-label">Amount (₪)</span><input type="number" class="p-amount" value="${p.amount}" onblur="calculateActiveMortgage()"></div>
-                <div class="form-group"><span class="sub-label">Start Month</span><input type="number" class="p-startMonth" value="${p.startMonth}" onblur="calculateActiveMortgage()"></div>
-                <div class="form-group p-end-group" style="${p.trigger==='one-time'?'visibility:hidden;':''}"><span class="sub-label">End Month</span><input type="number" class="p-endMonth" value="${p.endMonth}" onblur="calculateActiveMortgage()"></div>
-                <button type="button" class="btn-danger btn-mini" style="margin-bottom:2px;" onclick="document.getElementById('pre-item-${pId}').remove(); calculateActiveMortgage();">✕</button>
-            </div>
-        `;
-        pList.insertAdjacentHTML('beforeend', html);
-        if(!pData) calculateActiveMortgage();
-    }
-
-    function togglePrepaymentRecurField(pId) {
-        const item = document.getElementById(`pre-item-${pId}`);
-        item.querySelector('.p-end-group').style.visibility = (item.querySelector('.p-trigger').value === 'one-time') ? 'hidden' : 'visible';
-    }
-
-    function toggleTrackTable(id) {
-        const wrapper = document.getElementById(`track-table-wrapper-${id}`);
-        document.getElementById(`track-btn-toggle-${id}`).innerText = wrapper.classList.toggle('hidden') ? "Show Track Table" : "Hide Track Table";
-    }
-
-    function toggleTableVisibility() {
-        const wrapper = document.getElementById('table-wrapper');
-        document.getElementById('toggle-table-btn').innerText = wrapper.classList.toggle('hidden') ? "Show Table" : "Hide Table";
-    }
-
-    function gatherTracksUIData() {
-        return Array.from(document.querySelectorAll('.track-row')).map((row) => {
-            const trackCardId = row.id.split('-')[2];
-            return {
-                uiIndex: trackCardId,
-                name: row.querySelector('.t-name').value,
-                amount: parseFloat(row.querySelector('.t-amount').value) || 0,
-                years: parseInt(row.querySelector('.t-years').value) || 0,
-                rate: parseFloat(row.querySelector('.t-rate').value) || 0,
-                delay: parseInt(row.querySelector('.t-delay').value) || 0,
-                inflation: parseFloat(row.querySelector('.t-inflation').value) || 0,
-                changeMonth: parseInt(row.querySelector('.t-changeMonth').value) || 0,
-                changeRate: parseFloat(row.querySelector('.t-changeRate').value) || 0,
-                prepayments: Array.from(row.querySelectorAll('.prepayment-item')).map(pNode => ({
-                    trigger: pNode.querySelector('.p-trigger').value,
-                    strategy: pNode.querySelector('.p-strategy').value,
-                    amount: parseFloat(pNode.querySelector('.p-amount').value) || 0,
-                    startMonth: parseInt(pNode.querySelector('.p-startMonth').value) || 0,
-                    endMonth: parseInt(pNode.querySelector('.p-endMonth').value) || 0
-                }))
-            };
-        });
-    }
-
-    function getCalendarDateString(startInputValue, absoluteMonthOffset) {
-        if(!startInputValue) return `Month ${absoluteMonthOffset}`;
-        const parts = startInputValue.split('-');
-        let month = (parseInt(parts[1]) - 1) + (absoluteMonthOffset - 1);
-        return `${String((month % 12) + 1).padStart(2, '0')}/${parseInt(parts[0]) + Math.floor(month / 12)}`;
-    }
-
-    function getCalendarFriendlyText(startInputValue, absoluteMonthOffset) {
-        if(!startInputValue) return `Month ${absoluteMonthOffset}`;
-        const mNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-        const parts = startInputValue.split('-');
-        let month = (parseInt(parts[1]) - 1) + (absoluteMonthOffset - 1);
-        return `${mNames[month % 12]} ${parseInt(parts[0]) + Math.floor(month / 12)}`;
-    }
-
-    function getCurrentSystemMonthYearString() {
-        const d = new Date();
-        return `${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-    }
-
-    function fmt(val, forceDecimals = false) {
-        const truncate = document.getElementById('truncate-cents-toggle').checked;
-        if (truncate && !forceDecimals) return Math.round(val).toLocaleString(undefined, { maximumFractionDigits: 0 });
-        return val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    }
-
-    function calculateActiveMortgage() {
-        const tracks = gatherTracksUIData();
-        if(tracks.length === 0) return;
-
-        const dateInputVal = document.getElementById('portfolio-start-date').value;
-        const currentSysMonthYear = getCurrentSystemMonthYearString();
-
-        let totalPortfolioPrincipal = 0;
-        let globalEndTimeline = 360; 
+        const metrics = generateRunningAmortizationMatrix(totalTracks);
         
+        let loaned = 0, returned = 0, interestPaid = 0, inflationPaid = 0;
+        totalTracks.forEach(t => { loaned += t.amount; });
+        
+        for(let m = 1; m < metrics.finalPayments.length; m++) {
+            returned += (metrics.finalPayments[m] + metrics.finalExtras[m]);
+            interestPaid += metrics.finalInterest[m];
+            let overhead = (metrics.finalPayments[m] + metrics.finalExtras[m]) - metrics.finalPrincipal[m];
+            inflationPaid += Math.max(0, overhead - metrics.finalInterest[m]);
+        }
+
+        pinnedScenarios[name] = {
+            totalOutlays: metrics.finalPayments.map((val, idx) => val + metrics.finalExtras[idx]),
+            startDate: document.getElementById('portfolio-start-date').value,
+            summaryData: {
+                loaned: loaned,
+                returned: returned,
+                interest: interestPaid,
+                inflation: inflationPaid,
+                ratio: returned / (loaned || 1)
+            }
+        };
+        renderComparisonBadges();
+        debouncedCalculate();
+    }
+
+    function clearPinnedComparison() {
+        pinnedScenarios = {};
+        renderComparisonBadges();
+        debouncedCalculate();
+    }
+
+    function renderComparisonBadges() {
+        const container = document.getElementById('comparison-pins-container');
+        container.innerHTML = '';
+        Object.keys(pinnedScenarios).forEach(key => {
+            let b = document.createElement('span');
+            b.className = 'comp-badge';
+            b.innerHTML = `📌 <b>${key}</b> <span style="cursor:pointer;color:#e53e3e;" onclick="removeSinglePin('${key}')">✕</span>`;
+            container.appendChild(b);
+        });
+    }
+
+    function removeSinglePin(key) {
+        delete pinnedScenarios[key];
+        renderComparisonBadges();
+        debouncedCalculate();
+    }
+
+    // RENDER CONTRAST MATRICES Dynamically (COLUMN SCENARIOS VS ROW KPI VALUE LABELS)
+    function rebuildCrossComparisonTable() {
+        const compCard = document.getElementById('cross-comparison-card');
+        const head = document.getElementById('comp-table-head');
+        const body = document.getElementById('comp-table-body');
+        
+        const keys = Object.keys(pinnedScenarios);
+        
+        if (keys.length < 2) {
+            compCard.classList.add('hidden');
+            return;
+        }
+        compCard.classList.remove('hidden');
+
+        // Construct dynamic Headers
+        let headHtml = `<tr><th style="background-color:#1a202c;">Key Target Metrics</th>`;
+        keys.forEach(key => {
+            headHtml += `<th>${key}</th>`;
+        });
+        headHtml += `</tr>`;
+        head.innerHTML = headHtml;
+
+        // Construct fixed rows mapped to calculated scenario context arrays
+        const rowsMeta = [
+            { label: "Total Loan Size", key: "loaned", prefix: "₪", format: true },
+            { label: "Lifetime Combined Return", key: "returned", prefix: "₪", format: true },
+            { label: "Pure Bank Interest Cost", key: "interest", prefix: "₪", format: true },
+            { label: "Inflation Index Cost", key: "inflation", prefix: "₪", format: true },
+            { label: "Total Cost Over Principal", key: "overCost", custom: (scen) => scen.returned - scen.loaned, prefix: "₪", format: true },
+            { label: "Return Multiplier Ratio", key: "ratio", prefix: "x ", format: false }
+        ];
+
+        let bodyHtml = '';
+        rowsMeta.forEach(row => {
+            bodyHtml += `<tr><td class="metric-label">${row.label}</td>`;
+            keys.forEach(key => {
+                const scen = pinnedScenarios[key].summaryData;
+                let rawVal = row.custom ? row.custom(scen) : scen[row.key];
+                let displayVal = row.format ? fmt(rawVal) : rawVal.toFixed(2);
+                bodyHtml += `<td style="font-weight:600;">${row.prefix}${displayVal}</td>`;
+            });
+            bodyHtml += `</tr>`;
+        });
+        body.innerHTML = bodyHtml;
+    }
+
+    function generateRunningAmortizationMatrix(tracks) {
+        const dateInputVal = document.getElementById('portfolio-start-date').value;
+        let globalEndTimeline = 360;
         tracks.forEach(t => {
-            totalPortfolioPrincipal += t.amount;
             let endOfTrack = t.delay + (t.years * 12);
             if (endOfTrack > globalEndTimeline) globalEndTimeline = endOfTrack;
         });
-
-        globalEndTimeline += 120; 
+        globalEndTimeline += 120;
 
         let finalPayments = new Array(globalEndTimeline + 1).fill(0);
         let finalPrincipal = new Array(globalEndTimeline + 1).fill(0);
         let finalInterest = new Array(globalEndTimeline + 1).fill(0);
         let finalExtras = new Array(globalEndTimeline + 1).fill(0);
         let finalBalance = new Array(globalEndTimeline + 1).fill(0);
-
-        let globalTotalPureInterest = 0;
-        let globalTotalInflationCost = 0;
+        
+        let trackResults = {};
 
         tracks.forEach(t => {
             let balance = t.amount;
             let totalMonthsRuntime = t.years * 12;
             let currentAnnualRate = t.rate;
-            
             let monthsRemainingForTrack = totalMonthsRuntime;
-            let firstMonthRegularPayment = 0;
-            let maxTrackRegularPayment = 0;
-            let trackTotalInterestPaid = 0;
-            let trackTotalReturnedWithExtras = 0;
-            let trackLastActiveMonthIndex = 0;
-
+            let firstMonthRegularPayment = 0, maxTrackRegularPayment = 0, trackTotalInterestPaid = 0, trackTotalReturnedWithExtras = 0, trackLastActiveMonthIndex = 0;
             let trackHtmlRows = '';
 
             for(let m = 1; m <= globalEndTimeline; m++) {
-                if(m <= t.delay) continue; 
-
+                if(m <= t.delay) continue;
                 const trackActiveMonth = m - t.delay;
-                if(trackActiveMonth > totalMonthsRuntime || balance <= 0.01) continue; 
+                if(trackActiveMonth > totalMonthsRuntime || balance <= 0.01) continue;
 
-                if(t.changeMonth > 0 && m === t.changeMonth && t.changeRate > 0) {
-                    currentAnnualRate = t.changeRate;
-                }
-
+                if(t.changeMonth > 0 && m === t.changeMonth && t.changeRate > 0) currentAnnualRate = t.changeRate;
                 let currentMonthlyRate = (currentAnnualRate / 100) / 12;
                 const rowCalDate = getCalendarDateString(dateInputVal, m);
 
                 let inflationFactorMonthly = 1.0;
                 if (t.inflation > 0) {
-                    if (historicalCpiData[rowCalDate] !== undefined) {
-                        inflationFactorMonthly = 1 + historicalCpiData[rowCalDate];
-                    } else {
-                        inflationFactorMonthly = Math.pow(1 + (t.inflation / 100), 1 / 12);
-                    }
+                    inflationFactorMonthly = (historicalCpiData[rowCalDate] !== undefined) ? (1 + historicalCpiData[rowCalDate]) : Math.pow(1 + (t.inflation / 100), 1 / 12);
                 }
                 
                 let linkedBalanceBeforePayment = balance * inflationFactorMonthly;
                 let interestAccruedThisMonth = linkedBalanceBeforePayment * currentMonthlyRate;
 
-                let targetPayment = 0;
-                if(currentMonthlyRate > 0) {
-                    targetPayment = linkedBalanceBeforePayment * (currentMonthlyRate * Math.pow(1 + currentMonthlyRate, monthsRemainingForTrack)) / (Math.pow(1 + currentMonthlyRate, monthsRemainingForTrack) - 1);
-                } else {
-                    targetPayment = linkedBalanceBeforePayment / monthsRemainingForTrack;
-                }
+                let targetPayment = currentMonthlyRate > 0 ? 
+                    linkedBalanceBeforePayment * (currentMonthlyRate * Math.pow(1 + currentMonthlyRate, monthsRemainingForTrack)) / (Math.pow(1 + currentMonthlyRate, monthsRemainingForTrack) - 1)
+                    : linkedBalanceBeforePayment / monthsRemainingForTrack;
 
-                if(targetPayment > (linkedBalanceBeforePayment + interestAccruedThisMonth) || monthsRemainingForTrack === 1) {
-                    targetPayment = linkedBalanceBeforePayment + interestAccruedThisMonth;
-                }
+                if(targetPayment > (linkedBalanceBeforePayment + interestAccruedThisMonth) || monthsRemainingForTrack === 1) targetPayment = linkedBalanceBeforePayment + interestAccruedThisMonth;
 
                 let normalPrincipalComponent = targetPayment - interestAccruedThisMonth;
                 balance = (linkedBalanceBeforePayment + interestAccruedThisMonth) - targetPayment;
@@ -637,96 +429,102 @@
                 if(trackActiveMonth === 1) firstMonthRegularPayment = targetPayment;
                 if(targetPayment > maxTrackRegularPayment) maxTrackRegularPayment = targetPayment;
                 trackLastActiveMonthIndex = m;
-
                 trackTotalInterestPaid += interestAccruedThisMonth;
                 trackTotalReturnedWithExtras += targetPayment;
 
-                let extraInjectedThisMonth = 0;
-                let forceShortenRecalculation = false;
-
+                let extraInjectedThisMonth = 0, forceShortenRecalculation = false;
                 if (t.prepayments && t.prepayments.length > 0) {
                     t.prepayments.forEach(p => {
-                        let isApplicable = false;
-                        if(p.trigger === 'one-time' && m === p.startMonth) isApplicable = true;
-                        else if(p.trigger === 'recurring' && m >= p.startMonth && m <= p.endMonth) isApplicable = true;
-
+                        let isApplicable = (p.trigger === 'one-time' && m === p.startMonth) || (p.trigger === 'recurring' && m >= p.startMonth && m <= p.endMonth);
                         if(isApplicable && p.amount > 0) {
-                            let actualInjection = Math.min(p.amount, balance);
-                            balance -= actualInjection;
-                            extraInjectedThisMonth += actualInjection;
+                            let actualInjection = Math.min(p.amount, balance); balance -= actualInjection; extraInjectedThisMonth += actualInjection;
                             if(p.strategy === 'shorten-time' && actualInjection > 0) forceShortenRecalculation = true;
                         }
                     });
                 }
 
                 if(extraInjectedThisMonth > 0) {
-                    finalExtras[m] += extraInjectedThisMonth;
-                    trackTotalReturnedWithExtras += extraInjectedThisMonth;
-                    
+                    finalExtras[m] += extraInjectedThisMonth; trackTotalReturnedWithExtras += extraInjectedThisMonth;
                     if(forceShortenRecalculation) {
-                        if(currentMonthlyRate > 0 && targetPayment > (balance * currentMonthlyRate)) {
-                            let ratio = targetPayment / (targetPayment - (balance * currentMonthlyRate));
-                            monthsRemainingForTrack = Math.max(1, Math.ceil(Math.log(ratio) / Math.log(1 + currentMonthlyRate)));
-                        } else {
-                            monthsRemainingForTrack = targetPayment > 0 ? Math.ceil(balance / targetPayment) : monthsRemainingForTrack;
-                        }
+                        monthsRemainingForTrack = (currentMonthlyRate > 0 && targetPayment > (balance * currentMonthlyRate)) ? Math.max(1, Math.ceil(Math.log(targetPayment / (targetPayment - (balance * currentMonthlyRate))) / Math.log(1 + currentMonthlyRate))) : Math.ceil(balance / (targetPayment || 1));
                         totalMonthsRuntime = trackActiveMonth + monthsRemainingForTrack;
                     }
                 }
 
-                finalPayments[m] += targetPayment;
-                finalPrincipal[m] += normalPrincipalComponent;
-                finalInterest[m] += interestAccruedThisMonth;
-                finalBalance[m] += balance;
-
-                const isCurrentMonth = (rowCalDate === currentSysMonthYear);
-
-                trackHtmlRows += `
-                    <tr class="${isCurrentMonth ? 'current-month-row' : ''}">
-                        <td>Month ${m}</td><td>${rowCalDate}</td><td>₪${fmt(targetPayment + extraInjectedThisMonth)}</td>
-                        <td>₪${fmt(normalPrincipalComponent)}</td><td>₪${fmt(interestAccruedThisMonth)}</td>
-                        <td>₪${fmt(extraInjectedThisMonth)}</td><td>₪${fmt(balance)}</td>
-                    </tr>
-                `;
+                finalPayments[m] += targetPayment; finalPrincipal[m] += normalPrincipalComponent; finalInterest[m] += interestAccruedThisMonth; finalBalance[m] += balance;
+                trackHtmlRows += `<tr class="${rowCalDate === getCurrentSystemMonthYearString() ? 'current-month-row' : ''}"><td>Month ${m}</td><td>${rowCalDate}</td><td>₪${fmt(targetPayment + extraInjectedThisMonth)}</td><td>₪${fmt(normalPrincipalComponent)}</td><td>₪${fmt(interestAccruedThisMonth)}</td><td>₪${fmt(extraInjectedThisMonth)}</td><td>₪${fmt(balance)}</td></tr>`;
                 monthsRemainingForTrack--;
             }
 
             let trackTotalOverheadCost = trackTotalReturnedWithExtras - t.amount;
             let pureInflationIndexMatchingCost = Math.max(0, trackTotalOverheadCost - trackTotalInterestPaid);
-            
-            globalTotalPureInterest += trackTotalInterestPaid;
-            globalTotalInflationCost += pureInflationIndexMatchingCost;
 
+            trackResults[t.uiIndex] = {
+                firstMonthRegularPayment, maxTrackRegularPayment, trackLastActiveMonthIndex, trackTotalInterestPaid, pureInflationIndexMatchingCost, trackTotalReturnedWithExtras, trackHtmlRows
+            };
+        });
+
+        return { finalPayments, finalPrincipal, finalInterest, finalExtras, finalBalance, trackResults };
+    }
+
+    function exportPortfolioToCsv() {
+        const tracks = gatherTracksUIData();
+        if(tracks.length === 0) return alert("No active workspace arrays available to structure.");
+        const data = generateRunningAmortizationMatrix(tracks);
+        const dateInputVal = document.getElementById('portfolio-start-date').value;
+        let maxActiveTimelineLength = 0;
+        for(let m = 1; m < data.finalPayments.length; m++) { if(data.finalPayments[m] > 0 || data.finalBalance[m] > 0) maxActiveTimelineLength = m; }
+        let csvRows = ["Month Index,Calendar Date,Total Outflow Payment (ILS),Scheduled Base Principal (ILS),Interest Charge Cost (ILS),Extra Prepayment Injection (ILS),Remaining Outstanding Principal (ILS)"];
+        for(let m = 1; m <= maxActiveTimelineLength; m++) {
+            csvRows.push([`Month ${m}`, getCalendarDateString(dateInputVal, m), Math.round(data.finalPayments[m] + data.finalExtras[m]), Math.round(data.finalPrincipal[m]), Math.round(data.finalInterest[m]), Math.round(data.finalExtras[m]), Math.round(data.finalBalance[m])].join(","));
+        }
+        const blob = new Blob([csvRows.join("\n")], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a"); link.href = URL.createObjectURL(blob);
+        link.setAttribute("download", `mortgage_schedule_${document.getElementById('scenario-name-input').value.replace(/\s+/g, '_')}.csv`);
+        document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    }
+
+    function calculateActiveMortgage() {
+        const tracks = gatherTracksUIData();
+        if(tracks.length === 0) return;
+        const dateInputVal = document.getElementById('portfolio-start-date').value;
+        const currentSysMonthYear = getCurrentSystemMonthYearString();
+        const matrix = generateRunningAmortizationMatrix(tracks);
+
+        let totalPortfolioPrincipal = 0;
+        tracks.forEach(t => {
+            totalPortfolioPrincipal += t.amount;
+            const tr = matrix.trackResults[t.uiIndex];
             if(document.getElementById(`ts-first-${t.uiIndex}`)) {
-                document.getElementById(`ts-first-${t.uiIndex}`).innerText = `₪${fmt(firstMonthRegularPayment)}`;
-                document.getElementById(`ts-max-${t.uiIndex}`).innerText = `₪${fmt(maxTrackRegularPayment)}`;
-                document.getElementById(`ts-last-date-${t.uiIndex}`).innerText = trackLastActiveMonthIndex > 0 ? getCalendarFriendlyText(dateInputVal, trackLastActiveMonthIndex) : '-';
-                document.getElementById(`ts-interest-${t.uiIndex}`).innerText = `₪${fmt(trackTotalInterestPaid)}`;
-                document.getElementById(`ts-inflation-${t.uiIndex}`).innerText = `₪${fmt(pureInflationIndexMatchingCost)}`;
-                document.getElementById(`ts-sumcost-${t.uiIndex}`).innerText = `₪${fmt(trackTotalInterestPaid + pureInflationIndexMatchingCost)}`;
-                document.getElementById(`ts-ratio-${t.uiIndex}`).innerText = (trackTotalReturnedWithExtras / (t.amount || 1)).toFixed(2);
-                document.getElementById(`track-table-body-${t.uiIndex}`).innerHTML = trackHtmlRows || '<tr><td colspan="7" style="text-align:center;">No active metrics.</td></tr>';
+                document.getElementById(`ts-first-${t.uiIndex}`).innerText = `₪${fmt(tr.firstMonthRegularPayment)}`;
+                document.getElementById(`ts-max-${t.uiIndex}`).innerText = `₪${fmt(tr.maxTrackRegularPayment)}`;
+                document.getElementById(`ts-last-date-${t.uiIndex}`).innerText = tr.trackLastActiveMonthIndex > 0 ? getCalendarFriendlyText(dateInputVal, tr.trackLastActiveMonthIndex) : '-';
+                document.getElementById(`ts-interest-${t.uiIndex}`).innerText = `₪${fmt(tr.trackTotalInterestPaid)}`;
+                document.getElementById(`ts-inflation-${t.uiIndex}`).innerText = `₪${fmt(tr.pureInflationIndexMatchingCost)}`;
+                document.getElementById(`ts-sumcost-${t.uiIndex}`).innerText = `₪${fmt(tr.trackTotalInterestPaid + tr.pureInflationIndexMatchingCost)}`;
+                document.getElementById(`ts-ratio-${t.uiIndex}`).innerText = (tr.trackTotalReturnedWithExtras / (t.amount || 1)).toFixed(2);
+                document.getElementById(`track-table-body-${t.uiIndex}`).innerHTML = tr.trackHtmlRows || '<tr><td colspan="7">No active metrics.</td></tr>';
             }
         });
 
         let maxActiveTimelineLength = 0, globalFirstMonthPayment = 0, globalMaxMonthPayment = 0, cumulatePaidSum = 0, htmlRows = '';
-        for(let m = 1; m <= globalEndTimeline; m++) { if(finalPayments[m] > 0 || finalBalance[m] > 0) maxActiveTimelineLength = m; }
+        let globalTotalPureInterest = 0, globalTotalInflationCost = 0;
+
+        for(let m = 1; m < matrix.finalPayments.length; m++) {
+            if(matrix.finalPayments[m] > 0 || matrix.finalBalance[m] > 0) maxActiveTimelineLength = m;
+            globalTotalPureInterest += matrix.finalInterest[m];
+            let trackOverhead = (matrix.finalPayments[m] + matrix.finalExtras[m]) - matrix.finalPrincipal[m];
+            globalTotalInflationCost += Math.max(0, trackOverhead - matrix.finalInterest[m]);
+        }
 
         for(let m = 1; m <= maxActiveTimelineLength; m++) {
-            let monthTotalOutflow = finalPayments[m] + finalExtras[m];
-            cumulatePaidSum += monthTotalOutflow;
-            if(finalPayments[m] > 0) {
-                if(globalFirstMonthPayment === 0) globalFirstMonthPayment = finalPayments[m];
-                if(finalPayments[m] > globalMaxMonthPayment) globalMaxMonthPayment = finalPayments[m];
+            let monthTotalOutflow = matrix.finalPayments[m] + matrix.finalExtras[m]; cumulatePaidSum += monthTotalOutflow;
+            if(matrix.finalPayments[m] > 0) {
+                if(globalFirstMonthPayment === 0) globalFirstMonthPayment = matrix.finalPayments[m];
+                if(matrix.finalPayments[m] > globalMaxMonthPayment) globalMaxMonthPayment = matrix.finalPayments[m];
             }
             const globalRowCalDate = getCalendarDateString(dateInputVal, m);
-            htmlRows += `
-                <tr class="${globalRowCalDate === currentSysMonthYear ? 'current-month-row' : ''}">
-                    <td>Month ${m}</td><td style="font-weight:600; color:#4a5568;">${globalRowCalDate}</td><td>₪${fmt(monthTotalOutflow)}</td>
-                    <td>₪${fmt(finalPrincipal[m])}</td><td>₪${fmt(finalInterest[m])}</td><td>₪${fmt(finalExtras[m])}</td>
-                    <td>₪${fmt(cumulatePaidSum)}</td><td>₪${fmt(finalBalance[m])}</td>
-                </tr>
-            `;
+            htmlRows += `<tr id="amortization-row-${m}" class="${globalRowCalDate === currentSysMonthYear ? 'current-month-row' : ''}"><td>Month ${m}</td><td style="font-weight:600; color:#4a5568;">${globalRowCalDate}</td><td>₪${fmt(monthTotalOutflow)}</td><td>₪${fmt(matrix.finalPrincipal[m])}</td><td>₪${fmt(matrix.finalInterest[m])}</td><td>₪${fmt(matrix.finalExtras[m])}</td><td>₪${fmt(cumulatePaidSum)}</td><td>₪${fmt(matrix.finalBalance[m])}</td></tr>`;
         }
 
         document.getElementById('sum-loaned').innerText = `₪${fmt(totalPortfolioPrincipal)}`;
@@ -739,24 +537,196 @@
         document.getElementById('sum-last-date').innerText = maxActiveTimelineLength > 0 ? getCalendarFriendlyText(dateInputVal, maxActiveTimelineLength) : '-';
         document.getElementById('sum-max').innerText = `₪${fmt(globalMaxMonthPayment)}`;
         document.getElementById('table-body').innerHTML = htmlRows;
-        renderTimelineChart(maxActiveTimelineLength, finalPayments, finalExtras, dateInputVal);
+        
+        rebuildCrossComparisonTable();
+        renderTimelineChart(maxActiveTimelineLength, matrix.finalPayments, matrix.finalExtras, matrix.finalPrincipal, matrix.finalInterest, dateInputVal);
     }
 
-    function renderTimelineChart(length, basePayments, extraPayments, dateInputVal) {
+    function renderTimelineChart(length, basePayments, extraPayments, principalData, interestData, dateInputVal) {
         const ctx = document.getElementById('mortgageChart').getContext('2d');
+        const mode = document.getElementById('chart-mode-select').value;
+        const labels = Array.from({length: length}, (_, i) => getCalendarDateString(dateInputVal, i + 1));
         if(globalChart) globalChart.destroy();
-        globalChart = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: Array.from({length: length}, (_, i) => getCalendarDateString(dateInputVal, i + 1)),
-                datasets: [
-                    { label: 'Scheduled Payment (₪)', data: basePayments.slice(1, length + 1), backgroundColor: '#3182ce', stacked: true },
+        let datasets = [];
+
+        if (Object.keys(pinnedScenarios).length > 0) {
+            Object.keys(pinnedScenarios).forEach((scenName, index) => {
+                datasets.push({
+                    type: 'line', label: `Scenario: ${scenName} (Total Paid)`,
+                    data: pinnedScenarios[scenName].totalOutlays.slice(1, length + 1),
+                    borderColor: `hsl(${(index * 135) % 360}, 70%, 50%)`, borderWidth: 2, fill: false, tension: 0.1
+                });
+            });
+            datasets.push({
+                type: 'bar', label: 'Current Workspace Active Plan',
+                data: basePayments.slice(1, length + 1).map((v, i) => v + extraPayments[i+1]),
+                backgroundColor: 'rgba(49, 130, 206, 0.35)', stacked: false
+            });
+        } else {
+            if (mode === 'outflow') {
+                datasets = [
+                    { label: 'Scheduled Base Payment (₪)', data: basePayments.slice(1, length + 1), backgroundColor: '#3182ce', stacked: true },
                     { label: 'Extra Prepayment Injection (₪)', data: extraPayments.slice(1, length + 1), backgroundColor: '#e53e3e', stacked: true }
-                ]
-            },
-            options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } }
+                ];
+            } else {
+                datasets = [
+                    { label: 'Principal Cleared (₪)', data: principalData.slice(1, length + 1), backgroundColor: '#38a169', stacked: true },
+                    { label: 'Pure Interest Expense (₪)', data: interestData.slice(1, length + 1), backgroundColor: '#d69e2e', stacked: true }
+                ];
+            }
+        }
+
+        globalChart = new Chart(ctx, {
+            type: 'bar', data: { labels: labels, datasets: datasets },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: { x: { stacked: (Object.keys(pinnedScenarios).length === 0) }, y: { stacked: (Object.keys(pinnedScenarios).length === 0), beginAtZero: true } },
+                onClick: (e, elements) => { if (elements.length > 0) jumpToAmortizationTableRow(elements[0].index + 1); }
+            }
         });
     }
+
+    function jumpToAmortizationTableRow(monthIndex) {
+        const wrapper = document.getElementById('table-wrapper');
+        if (wrapper.classList.contains('hidden')) toggleTableVisibility();
+        const targetRow = document.getElementById(`amortization-row-${monthIndex}`);
+        if(targetRow) {
+            document.querySelectorAll('#table-body tr').forEach(r => r.classList.remove('highlighted-month-row'));
+            targetRow.classList.add('highlighted-month-row'); targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }
+
+    async function exportScenarioToClipboard() {
+        try {
+            const packageData = { signature: "MORTGAGE_SIM_DATA", name: document.getElementById('scenario-name-input').value.trim() || "Exported Plan", startDate: document.getElementById('portfolio-start-date').value, truncateCents: document.getElementById('truncate-cents-toggle').checked, tracks: gatherTracksUIData() };
+            await navigator.clipboard.writeText(JSON.stringify(packageData, null, 2)); alert(`Scenario configurations copied to clipboard!`);
+        } catch (err) { alert("Failed writing footprint matrix."); }
+    }
+
+    async function importScenarioFromClipboard() {
+        try {
+            const text = await navigator.clipboard.readText(); if (!text) return alert("Clipboard empty!");
+            let packageData = JSON.parse(text); if (packageData.signature !== "MORTGAGE_SIM_DATA") return alert("Unrecognized schema structural signature.");
+            const targetName = (packageData.name || "Imported Plan") + " (Imported)";
+            const scenarios = JSON.parse(localStorage.getItem('mortgage_scenarios')) || {};
+            scenarios[targetName] = { startDate: packageData.startDate || "2022-01", truncateCents: packageData.hasOwnProperty('truncateCents') ? packageData.truncateCents : true, tracks: packageData.tracks || [] };
+            localStorage.setItem('mortgage_scenarios', JSON.stringify(scenarios)); populateScenarioSelector();
+            document.getElementById('scenario-selector').value = targetName; loadScenario(); alert(`Successfully loaded: "${targetName}"!`);
+        } catch(err) { alert("Data processing dropped."); }
+    }
+
+    function populateScenarioSelector() {
+        const selector = document.getElementById('scenario-selector');
+        const scenarios = JSON.parse(localStorage.getItem('mortgage_scenarios')); selector.innerHTML = '';
+        Object.keys(scenarios).forEach(key => { let opt = document.createElement('option'); opt.value = key; opt.innerText = key; selector.appendChild(opt); });
+    }
+
+    function loadScenario() {
+        const selector = document.getElementById('scenario-selector'); if (!selector.value) return;
+        document.getElementById('scenario-name-input').value = selector.value;
+        const scenarios = JSON.parse(localStorage.getItem('mortgage_scenarios')); const scenarioData = scenarios[selector.value] || {};
+        const tracksData = Array.isArray(scenarioData) ? scenarioData : (scenarioData.tracks || []);
+        document.getElementById('portfolio-start-date').value = scenarioData.startDate || "2022-01";
+        document.getElementById('truncate-cents-toggle').checked = scenarioData.hasOwnProperty('truncateCents') ? scenarioData.truncateCents : true;
+        const container = document.getElementById('tracks-container'); container.innerHTML = ''; trackCounter = 0;
+        tracksData.forEach(t => addTrackField(t)); updateCbsLink(); calculateActiveMortgage();
+    }
+
+    function saveActiveScenario() {
+        const name = document.getElementById('scenario-name-input').value.trim(); if(!name) return alert("Please enter a valid Scenario Name");
+        const scenarios = JSON.parse(localStorage.getItem('mortgage_scenarios')) || {};
+        scenarios[name] = { startDate: document.getElementById('portfolio-start-date').value, truncateCents: document.getElementById('truncate-cents-toggle').checked, tracks: gatherTracksUIData() };
+        localStorage.setItem('mortgage_scenarios', JSON.stringify(scenarios)); populateScenarioSelector(); document.getElementById('scenario-selector').value = name; alert(`Scenario "${name}" successfully saved.`);
+    }
+
+    function cloneScenario() { document.getElementById('scenario-name-input').value = document.getElementById('scenario-name-input').value + " (Copy)"; saveActiveScenario(); }
+    function deleteScenario() {
+        const name = document.getElementById('scenario-selector').value; const scenarios = JSON.parse(localStorage.getItem('mortgage_scenarios')) || {};
+        if(Object.keys(scenarios).length <= 1) return alert("You must preserve at least one active scenario profile.");
+        if(confirm(`Are you sure you want to remove scenario: "${name}"?`)) { delete scenarios[name]; localStorage.setItem('mortgage_scenarios', JSON.stringify(scenarios)); populateScenarioSelector(); loadScenario(); }
+    }
+
+    function addTrackField(data = null) {
+        const container = document.getElementById('tracks-container'); const id = trackCounter++;
+        const d = data || { name: `Track #${id+1}`, amount: 200000, years: 20, rate: 4.0, delay: 0, inflation: 0, changeMonth: 0, changeRate: 0, prepayments: [] };
+
+        const html = `
+            <div class="track-row" id="track-card-${id}">
+                <div class="track-main-inputs">
+                    <div class="form-group"><label>Track Descriptor</label><input type="text" class="t-name" value="${d.name}" oninput="debouncedCalculate()"></div>
+                    <div class="form-group"><label>Principal (Loan ₪)</label><input type="number" class="t-amount" value="${d.amount}" oninput="debouncedCalculate()"></div>
+                    <div class="form-group"><label>Length (Years)</label><input type="number" class="t-years" value="${d.years}" oninput="debouncedCalculate()"></div>
+                    <div class="form-group"><label>Initial Interest (%)</label><input type="number" class="t-rate" step="0.01" value="${d.rate}" oninput="debouncedCalculate()"></div>
+                    <div class="form-group"><label>Start Delay (M)</label><input type="number" class="t-delay" value="${d.delay}" oninput="debouncedCalculate()"></div>
+                    <div class="form-group"><label>Yearly Inflation (%)</label><input type="number" class="t-inflation" step="0.1" value="${d.inflation}" oninput="debouncedCalculate()"></div>
+                    <button type="button" class="btn-danger" onclick="document.getElementById('track-card-${id}').remove(); debouncedCalculate();">✕</button>
+                </div>
+                <div class="advanced-inputs">
+                    <div style="border-right: 1px dashed #cbd5e0; padding-right: 10px;">
+                        <span style="font-size:0.8rem; font-weight:bold; color:#2b6cb0;">Interest Schedule Modification</span>
+                        <div style="display:flex; gap:8px; margin-top:5px;">
+                            <div class="form-group"><span class="sub-label">At Month</span><input type="number" class="t-changeMonth" value="${d.changeMonth}" oninput="debouncedCalculate()"></div>
+                            <div class="form-group"><span class="sub-label">New Rate (%)</span><input type="number" class="t-changeRate" step="0.01" value="${d.changeRate}" oninput="debouncedCalculate()"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex-header"><span style="font-size:0.8rem; font-weight:bold; color:#2b6cb0;">Prepayment Injections</span><button type="button" class="btn-primary btn-mini" onclick="addPrepaymentRow(${id})">+ Add Injection</button></div>
+                        <div class="prepayment-list" id="prepayment-list-${id}"></div>
+                    </div>
+                </div>
+                <div class="track-summary-panel" id="track-summary-${id}">
+                    <div class="ts-item"><span class="ts-label">First Regular Month</span><span class="ts-val" id="ts-first-${id}">₪0.00</span></div>
+                    <div class="ts-item"><span class="ts-label">Max Scheduled Month</span><span class="ts-val" id="ts-max-${id}">₪0.00</span></div>
+                    <div class="ts-item"><span class="ts-label">Last Payment Date</span><span class="ts-val" id="ts-last-date-${id}">-</span></div>
+                    <div class="ts-item"><span class="ts-label">Total Pure Interest</span><span class="ts-val" id="ts-interest-${id}">₪0.00</span></div>
+                    <div class="ts-item"><span class="ts-label">Inflation Index Cost</span><span class="ts-val" id="ts-inflation-${id}">₪0.00</span></div>
+                    <div class="ts-item"><span class="ts-label">Total Overcosts (Sum)</span><span class="ts-val" id="ts-sumcost-${id}">₪0.00</span></div>
+                    <div class="ts-item"><span class="ts-label">Track Return Ratio</span><span class="ts-val" id="ts-ratio-${id}">0.00</span></div>
+                </div>
+                <div class="track-table-toggle-wrapper"><button type="button" class="btn-secondary btn-mini" id="track-btn-toggle-${id}" onclick="toggleTrackTable(${id})">Show Track Table</button></div>
+                <div id="track-table-wrapper-${id}" class="table-responsive hidden" style="margin-top: 10px;">
+                    <table><thead><tr><th>Timeline Month</th><th>Date</th><th>Total Payment</th><th>Principal</th><th>Interest</th><th>Prepayment</th><th>Remaining Principal</th></tr></thead><tbody id="track-table-body-${id}"></tbody></table>
+                </div>
+            </div>
+        `;
+        container.insertAdjacentHTML('beforeend', html);
+        if(d.prepayments && d.prepayments.length > 0) d.prepayments.forEach(p => addPrepaymentRow(id, p));
+        calculateActiveMortgage();
+    }
+
+    function addPrepaymentRow(trackId, pData = null) {
+        const pList = document.getElementById(`prepayment-list-${trackId}`); const pId = Date.now() + Math.random().toString(36).substr(2, 5);
+        const p = pData || { trigger: "one-time", strategy: "reduce-payment", amount: 10000, startMonth: 12, endMonth: 0 };
+        const html = `
+            <div class="prepayment-item" id="pre-item-${pId}">
+                <div class="form-group"><span class="sub-label">Type</span><select class="p-trigger" onchange="togglePrepaymentRecurField('${pId}'); debouncedCalculate();"><option value="one-time" ${p.trigger==='one-time'?'selected':''}>One Time</option><option value="recurring" ${p.trigger==='recurring'?'selected':''}>Monthly Recur</option></select></div>
+                <div class="form-group"><span class="sub-label">Strategy</span><select class="p-strategy" onchange="debouncedCalculate()"><option value="reduce-payment" ${p.strategy==='reduce-payment'?'selected':''}>Reduce Payment</option><option value="shorten-time" ${p.strategy==='shorten-time'?'selected':''}>Shorten Horizon</option></select></div>
+                <div class="form-group"><span class="sub-label">Amount (₪)</span><input type="number" class="p-amount" value="${p.amount}" oninput="debouncedCalculate()"></div>
+                <div class="form-group"><span class="sub-label">Start Month</span><input type="number" class="p-startMonth" value="${p.startMonth}" oninput="debouncedCalculate()"></div>
+                <div class="form-group p-end-group" style="${p.trigger==='one-time'?'visibility:hidden;':''}"><span class="sub-label">End Month</span><input type="number" class="p-endMonth" value="${p.endMonth}" oninput="debouncedCalculate()"></div>
+                <button type="button" class="btn-danger btn-mini" style="margin-bottom:2px;" onclick="document.getElementById('pre-item-${pId}').remove(); debouncedCalculate();">✕</button>
+            </div>
+        `;
+        pList.insertAdjacentHTML('beforeend', html); if(!pData) calculateActiveMortgage();
+    }
+
+    function togglePrepaymentRecurField(pId) { const item = document.getElementById(`pre-item-${pId}`); item.querySelector('.p-end-group').style.visibility = (item.querySelector('.p-trigger').value === 'one-time') ? 'hidden' : 'visible'; }
+    function toggleTrackTable(id) { const wrapper = document.getElementById(`track-table-wrapper-${id}`); document.getElementById(`track-btn-toggle-${id}`).innerText = wrapper.classList.toggle('hidden') ? "Show Track Table" : "Hide Track Table"; }
+    function toggleTableVisibility() { const wrapper = document.getElementById('table-wrapper'); document.getElementById('toggle-table-btn').innerText = wrapper.classList.toggle('hidden') ? "Show Table" : "Hide Table"; }
+
+    function gatherTracksUIData() {
+        return Array.from(document.querySelectorAll('.track-row')).map((row) => {
+            return {
+                uiIndex: row.id.split('-')[2], name: row.querySelector('.t-name').value, amount: parseFloat(row.querySelector('.t-amount').value) || 0, years: parseInt(row.querySelector('.t-years').value) || 0, rate: parseFloat(row.querySelector('.t-rate').value) || 0, delay: parseInt(row.querySelector('.t-delay').value) || 0, inflation: parseFloat(row.querySelector('.t-inflation').value) || 0, changeMonth: parseInt(row.querySelector('.t-changeMonth').value) || 0, changeRate: parseFloat(row.querySelector('.t-changeRate').value) || 0,
+                prepayments: Array.from(row.querySelectorAll('.prepayment-item')).map(pNode => ({ trigger: pNode.querySelector('.p-trigger').value, strategy: pNode.querySelector('.p-strategy').value, amount: parseFloat(pNode.querySelector('.p-amount').value) || 0, startMonth: parseInt(pNode.querySelector('.p-startMonth').value) || 0, endMonth: parseInt(pNode.querySelector('.p-endMonth').value) || 0 }))
+            };
+        });
+    }
+
+    function getCalendarDateString(startInputValue, absoluteMonthOffset) { if(!startInputValue) return `Month ${absoluteMonthOffset}`; const parts = startInputValue.split('-'); let month = (parseInt(parts[1]) - 1) + (absoluteMonthOffset - 1); return `${String((month % 12) + 1).padStart(2, '0')}/${parseInt(parts[0]) + Math.floor(month / 12)}`; }
+    function getCalendarFriendlyText(startInputValue, absoluteMonthOffset) { if(!startInputValue) return `Month ${absoluteMonthOffset}`; const mNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]; const parts = startInputValue.split('-'); let month = (parseInt(parts[1]) - 1) + (absoluteMonthOffset - 1); return `${mNames[month % 12]} ${parseInt(parts[0]) + Math.floor(month / 12)}`; }
+    function getCurrentSystemMonthYearString() { const d = new Date(); return `${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`; }
+    function fmt(val, forceDecimals = false) { const truncate = document.getElementById('truncate-cents-toggle').checked; if (truncate && !forceDecimals) return Math.round(val).toLocaleString(undefined, { maximumFractionDigits: 0 }); return val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 </script>
 </body>
 </html>
